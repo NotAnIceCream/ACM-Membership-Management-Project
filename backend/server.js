@@ -366,12 +366,40 @@ app.patch("/api/members/:id/restore", requireAdmin, (req, res) => {
   res.json({ message: "Member restored.", member: getMember(id) });
 });
 
+
 app.delete("/api/members/:id", requireAdmin, (req, res) => {
   const id = Number(req.params.id);
-  const result = db.prepare("DELETE FROM members WHERE id=?").run(id);
-  if (!result.changes) return httpError(res, 404, "Member not found.");
-  res.json({ message: "Member permanently deleted." });
+
+  const member = db.prepare(
+    "SELECT id, email FROM members WHERE id = ?"
+  ).get(id);
+
+  if (!member) {
+    return httpError(res, 404, "Member not found.");
+  }
+
+  try {
+    const deleteMemberAndAccount = db.transaction(() => {
+      db.prepare(
+        "DELETE FROM users WHERE email = ? COLLATE NOCASE"
+      ).run(member.email);
+
+      db.prepare(
+        "DELETE FROM members WHERE id = ?"
+      ).run(id);
+    });
+
+    deleteMemberAndAccount();
+
+    return res.json({
+      message: "Member and associated login account permanently deleted."
+    });
+  } catch (error) {
+    console.error(error);
+    return httpError(res, 500, "Could not permanently delete member.");
+  }
 });
+
 
 // Team CRUD.
 app.get("/api/teams", (_req, res) => {
